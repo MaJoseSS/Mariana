@@ -1,56 +1,44 @@
-# Tiny Tapeout project information
 project:
-  title:        ""      # Project title
-  author:       ""      # Your name
-  discord:      ""      # Your discord username, for communication and automatically assigning you a Tapeout role (optional)
-  description:  ""      # One line description of what your project does
-  language:     "Verilog" # other examples include SystemVerilog, Amaranth, VHDL, etc
-  clock_hz:     0       # Clock frequency in Hz (or 0 if not applicable)
-
-  # How many tiles your design occupies? A single tile is about 167x108 uM.
-  tiles: "1x1"          # Valid values: 1x1, 1x2, 2x2, 3x2, 4x2, 6x2 or 8x2
-
-  # Your top module name must start with "tt_um_". Make it unique by including your github username:
-  top_module:  "tt_um_example"
-
-  # List your project's source files here.
-  # Source files must be in ./src and you must list each source file separately, one per line.
-  # Don't forget to also update `PROJECT_SOURCES` in test/Makefile.
+  title:        "UART Evidencia"
+  author:       "SON25"
+  discord:      "NaN"
+  description:  "Configurable UART for serial communication"
+  language:     "Verilog"
+  clock_hz:     0
+  tiles:        "1x1"
+  top_module:   "tt_um_uart"
   source_files:
     - "project.v"
 
-# The pinout of your project. Leave unused pins blank. DO NOT delete or add any pins.
-# This section is for the datasheet/website. Use descriptive names (e.g., RX, TX, MOSI, SCL, SEG_A, etc.).
 pinout:
   # Inputs
-  ui[0]: ""
-  ui[1]: ""
-  ui[2]: ""
-  ui[3]: ""
-  ui[4]: ""
-  ui[5]: ""
-  ui[6]: ""
-  ui[7]: ""
+  ui[0]: "RX_IN"    # Serial input
+  ui[1]: "TX_START" # Transmission start signal
+  ui[2]: "BAUD_EN"  # 16x baud rate enable
+  ui[3]: "CTRL0"    # Data bits config LSB
+  ui[4]: "CTRL1"    # Data bits config
+  ui[5]: "CTRL2"    # Parity type (0=Odd, 1=Even)
+  ui[6]: "CTRL3"    # Parity enable (0=Enabled)
+  ui[7]: "CTRL4"    # Stop bits (0=1bit, 1=2bits)
 
   # Outputs
-  uo[0]: ""
-  uo[1]: ""
-  uo[2]: ""
-  uo[3]: ""
-  uo[4]: ""
-  uo[5]: ""
-  uo[6]: ""
-  uo[7]: ""
+  uo[0]: "TX_OUT"   # Serial output
+  uo[1]: "TX_BUSY"  # Transmitter busy
+  uo[2]: "RX_READY" # Data received ready
+  uo[3]: "RX_ERROR" # Error indicator
+  uo[4]: ""         # Unused
+  uo[5]: ""         # Unused
+  uo[6]: ""         # Unused
+  uo[7]: ""         # Unused
 
   # Bidirectional pins
-  uio[0]: ""
-  uio[1]: ""
-  uio[2]: ""
-  uio[3]: ""
-  uio[4]: ""
-  uio[5]: ""
-  uio[6]: ""
-  uio[7]: ""
+  uio[0]: "DATA0"   # Data bit 0 (input only)
+  uio[1]: "DATA1"   # Data bit 1
+  uio[2]: "DATA2"   # Data bit 2
+  uio[3]: "DATA3"   # Data bit 3
+  uio[4]: "DATA4"   # Data bit 4
+  uio[5]: "DATA5"   # Data bit 5
+  uio[6]: "DATA6"   # Data bit 6
+  uio[7]: "DATA7"   # Data bit 7
 
-# Do not change!
 yaml_version: 6
