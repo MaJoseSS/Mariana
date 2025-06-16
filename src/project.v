@@ -1,12 +1,12 @@
 module tt_um_uart (
-    input  wire [7:0] ui_in,    // Dedicated inputs
-    output wire [7:0] uo_out,   // Dedicated outputs
-    input  wire [7:0] uio_in,   // Bidirectional data (inputs only)
-    output wire [7:0] uio_out,  // Bidirectional data (unused)
-    output wire [7:0] uio_oe,   // Bidirectional enable (always input)
-    input  wire       ena,      // unused
-    input  wire       clk,      // clock
-    input  wire       rst_n     // reset (active low)
+    input  wire [7:0] ui_in,
+    output wire [7:0] uo_out,
+    input  wire [7:0] uio_in,
+    output wire [7:0] uio_out,
+    output wire [7:0] uio_oe,
+    input  wire       ena,
+    input  wire       clk,
+    input  wire       rst_n
 );
 
     // Asignación de pines
@@ -20,32 +20,32 @@ module tt_um_uart (
     wire CTRL4    = ui_in[7];
     
     // Configuración
-    wire [1:0] data_bits = {CTRL1, CTRL0}; // 00=5b, 01=6b, 10=7b, 11=8b
-    wire       parity_en = ~CTRL3;         // 0=habilitada
-    wire       parity_sel = CTRL2;         // 0=impar, 1=par
-    wire       stop_bits = CTRL4;          // 0=1bit, 1=2bits
+    wire [1:0] data_bits = {CTRL1, CTRL0};
+    wire       parity_en = ~CTRL3;
+    wire       parity_sel = CTRL2;
+    wire       stop_bits = CTRL4;
     
     // Salidas principales
     wire TX_OUT, TX_BUSY, RX_READY, RX_ERROR;
     
-    assign uo_out[0] = TX_OUT;    // Salida serial
-    assign uo_out[1] = TX_BUSY;   // Transmisor ocupado
-    assign uo_out[2] = RX_READY;  // Dato recibido listo
-    assign uo_out[3] = RX_ERROR;  // Error de recepción
-    assign uo_out[7:4] = 4'b0;    // No utilizados
+    assign uo_out[0] = TX_OUT;
+    assign uo_out[1] = TX_BUSY;
+    assign uo_out[2] = RX_READY;
+    assign uo_out[3] = RX_ERROR;
+    assign uo_out[7:4] = 4'b0;
     
-    // Bidireccionales (solo entrada)
+    // Bidireccionales
     assign uio_out = 8'b0;
-    assign uio_oe = 8'b00000000;  // Siempre en modo entrada
+    assign uio_oe = 8'b00000000;
     
-    // Instancia del UART configurable
+    // Instancia UART
     uart uart_inst (
         .clk(clk),
-        .rst(!rst_n),            // Reset activo alto
+        .rst(!rst_n),
         .rx_in(RX_IN),
         .tx_start(TX_START),
         .baud_en(BAUD_EN),
-        .data_in(uio_in),        // Datos de entrada bidireccionales
+        .data_in(uio_in),
         .data_bits(data_bits),
         .parity_en(parity_en),
         .parity_sel(parity_sel),
@@ -58,7 +58,6 @@ module tt_um_uart (
 
 endmodule
 
-// ======================= MÓDULO UART CONFIGURABLE =======================
 module uart (
     input        clk,
     input        rst,
@@ -66,17 +65,17 @@ module uart (
     input        tx_start,
     input        baud_en,
     input  [7:0] data_in,
-    input  [1:0] data_bits,   // Config bits de datos
-    input        parity_en,   // Habilitación paridad
-    input        parity_sel,  // 0=impar, 1=par
-    input        stop_bits,   // Bits de stop
+    input  [1:0] data_bits,
+    input        parity_en,
+    input        parity_sel,
+    input        stop_bits,
     output       tx_out,
     output       tx_busy,
     output       rx_ready,
     output       rx_error
 );
 
-    // Parámetros de estado
+    // Estados TX
     typedef enum {
         TX_IDLE,
         TX_START,
@@ -86,6 +85,7 @@ module uart (
         TX_STOP2
     } tx_state_t;
     
+    // Estados RX
     typedef enum {
         RX_IDLE,
         RX_START,
@@ -109,25 +109,22 @@ module uart (
     reg       rx_ready_reg;
     reg       rx_error_reg;
     reg [3:0] rx_sample_cnt;
-    reg [2:0] rx_sync;           // Sincronización de entrada
-    reg       rx_sample;          // Muestra estabilizada
+    reg [2:0] rx_sync;
+    reg       rx_sample;
     
     // Configuración bits
-    wire [2:0] num_bits = 5 + data_bits;  // 5-8 bits
-    
-    // ======================= SINCRO DE ENTRADA RX =======================
+    wire [2:0] num_bits = 5 + data_bits;
+
+    // Sincronización RX
     always @(posedge clk or posedge rst) begin
-        if (rst) begin
-            rx_sync <= 3'b111;
-        end else begin
-            rx_sync <= {rx_sync[1:0], rx_in};
-        end
+        if (rst) rx_sync <= 3'b111;
+        else rx_sync <= {rx_sync[1:0], rx_in};
     end
     
-    // Detección de flanco de bajada
+    // Detección de flanco
     wire rx_falling_edge = (rx_sync[2:1] == 2'b10);
     
-    // Muestreo estabilizado (mayoría de 3 muestras)
+    // Muestreo estabilizado
     always @(posedge clk) begin
         case (rx_sync[2:0])
             3'b000, 3'b001, 3'b010, 3'b100: rx_sample <= 1'b0;
@@ -135,11 +132,10 @@ module uart (
         endcase
     end
 
-    // ======================= TRANSMISOR =======================
-    // Cálculo de paridad
-    wire parity_bit = parity_sel ? 
-        ~(^tx_data[num_bits-1:0]) :  // Par
-         (^tx_data[num_bits-1:0]);   // Impar
+    // Cálculo de paridad (fuera del always)
+    wire tx_parity_bit = parity_sel ? 
+        ~(^tx_data[num_bits-1:0]) : 
+         (^tx_data[num_bits-1:0]);
     
     // Máquina de estados TX
     always @(posedge clk or posedge rst) begin
@@ -175,7 +171,7 @@ module uart (
                 end
                 
                 TX_PARITY: begin
-                    tx_reg <= parity_bit;
+                    tx_reg <= tx_parity_bit;
                     tx_state <= TX_STOP1;
                 end
                 
@@ -200,7 +196,10 @@ module uart (
     assign tx_out = tx_reg;
     assign tx_busy = tx_busy_reg;
 
-    // ======================= RECEPTOR =======================
+    // Cálculo de paridad RX (fuera del always)
+    wire rx_base_parity = ^rx_data[num_bits-1:0];
+    wire rx_exp_parity = parity_sel ? ~rx_base_parity : rx_base_parity;
+    
     // Máquina de estados RX
     always @(posedge clk or posedge rst) begin
         if (rst) begin
@@ -211,10 +210,10 @@ module uart (
         end
         else if (baud_en) begin
             rx_ready_reg <= 1'b0;
-            rx_error_reg <= 1'b0;
             
             case (rx_state)
                 RX_IDLE: begin
+                    rx_error_reg <= 1'b0;
                     rx_sample_cnt <= 4'd0;
                     if (rx_falling_edge) begin
                         rx_state <= RX_START;
@@ -223,7 +222,7 @@ module uart (
                 
                 RX_START: begin
                     if (rx_sample_cnt == 4'd7) begin
-                        if (rx_sample) begin // Debería ser 0
+                        if (rx_sample) begin
                             rx_state <= RX_IDLE;
                             rx_error_reg <= 1'b1;
                         end
@@ -253,11 +252,7 @@ module uart (
                 
                 RX_PARITY: begin
                     if (rx_sample_cnt == 4'd7) begin
-                        // Verificar paridad
-                        wire exp_parity = parity_sel ? 
-                            ~(^rx_data[num_bits-1:0]) : 
-                             (^rx_data[num_bits-1:0]);
-                        if (rx_sample != exp_parity)
+                        if (rx_sample != rx_exp_parity)
                             rx_error_reg <= 1'b1;
                     end
                     else if (rx_sample_cnt == 4'd15) begin
@@ -269,7 +264,7 @@ module uart (
                 
                 RX_STOP1: begin
                     if (rx_sample_cnt == 4'd7) begin
-                        if (!rx_sample) // Debería ser 1
+                        if (!rx_sample)
                             rx_error_reg <= 1'b1;
                     end
                     else if (rx_sample_cnt == 4'd15) begin
@@ -287,7 +282,7 @@ module uart (
                 
                 RX_STOP2: begin
                     if (rx_sample_cnt == 4'd7) begin
-                        if (!rx_sample) // Debería ser 1
+                        if (!rx_sample)
                             rx_error_reg <= 1'b1;
                     end
                     else if (rx_sample_cnt == 4'd15) begin
