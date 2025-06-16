@@ -182,7 +182,7 @@ end
   
 // Juntando ambas
           
-module UARTComplete (
+module uart_inst (
   input clockUart,
   input resetUart,
   input StartUart,
