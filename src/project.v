@@ -41,11 +41,11 @@ module tt_um_uart (
     // Instancia del UART configurable
     uart uart_inst (
         .clk(clk),
-        .rst(!rst_n),         // Reset activo alto
+        .rst(!rst_n),            // Reset activo alto
         .rx_in(RX_IN),
         .tx_start(TX_START),
         .baud_en(BAUD_EN),
-        .data_in(uio_in),     // Datos de entrada bidireccionales
+        .data_in(uio_in),        // Datos de entrada bidireccionales
         .data_bits(data_bits),
         .parity_en(parity_en),
         .parity_sel(parity_sel),
@@ -59,154 +59,248 @@ module tt_um_uart (
 endmodule
 
 // ======================= MÓDULO UART CONFIGURABLE =======================
+module uart (
+    input        clk,
+    input        rst,
+    input        rx_in,
+    input        tx_start,
+    input        baud_en,
+    input  [7:0] data_in,
+    input  [1:0] data_bits,   // Config bits de datos
+    input        parity_en,   // Habilitación paridad
+    input        parity_sel,  // 0=impar, 1=par
+    input        stop_bits,   // Bits de stop
+    output       tx_out,
+    output       tx_busy,
+    output       rx_ready,
+    output       rx_error
+);
 
-// Primero el modulo de tx 
+    // Parámetros de estado
+    typedef enum {
+        TX_IDLE,
+        TX_START,
+        TX_DATA,
+        TX_PARITY,
+        TX_STOP1,
+        TX_STOP2
+    } tx_state_t;
+    
+    typedef enum {
+        RX_IDLE,
+        RX_START,
+        RX_DATA,
+        RX_PARITY,
+        RX_STOP1,
+        RX_STOP2
+    } rx_state_t;
 
-module tx(
-  input reinicio,
-  input clock,
-  input [7:0] info_in,
-  input start,
-  output reg TX,
-  output reg ocupado);
-  
-
-  typedef enum reg [1:0] {Reposo, Start, Info, Stop} Estados;
- 
-  Estados EstadosTx;
-  reg [2:0] Indexes;
-  reg [7:0] DataSaved;
-
-  
-  always @(posedge clock or 
-           posedge reinicio) begin
-    if (reinicio) begin
-    	EstadosTx <= Reposo;
-      Indexes <= 0; TX <= 1; ocupado <= 0;
+    // Registros TX
+    reg [2:0] tx_state;
+    reg [2:0] tx_bit_cnt;
+    reg [7:0] tx_data;
+    reg       tx_reg;
+    reg       tx_busy_reg;
+    
+    // Registros RX
+    reg [2:0] rx_state;
+    reg [2:0] rx_bit_cnt;
+    reg [7:0] rx_data;
+    reg       rx_ready_reg;
+    reg       rx_error_reg;
+    reg [3:0] rx_sample_cnt;
+    reg [2:0] rx_sync;           // Sincronización de entrada
+    reg       rx_sample;          // Muestra estabilizada
+    
+    // Configuración bits
+    wire [2:0] num_bits = 5 + data_bits;  // 5-8 bits
+    
+    // ======================= SINCRO DE ENTRADA RX =======================
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            rx_sync <= 3'b111;
+        end else begin
+            rx_sync <= {rx_sync[1:0], rx_in};
+        end
     end
-    else begin
-      case(EstadosTx)
-        Reposo: begin
-          TX <= 1;
-          ocupado <= 0;
-        if (start) begin 
-          DataSaved <= info_in;
-          EstadosTx <= Start;
-          ocupado <= 1;
-        end
-       end
-        
-  		Start: begin
-          TX <= 0;
-          EstadosTx <= Info;
-          Indexes <= 0;
-          
-        end
-        
-        Info: begin
-          TX <= DataSaved[Indexes];
-          if (Indexes == 7) EstadosTx <= Stop;
-          else Indexes <= Indexes +1;
-        end
-        
-        Stop: begin
-          TX <= 1;
-          EstadosTx <= Reposo;
-        end
+    
+    // Detección de flanco de bajada
+    wire rx_falling_edge = (rx_sync[2:1] == 2'b10);
+    
+    // Muestreo estabilizado (mayoría de 3 muestras)
+    always @(posedge clk) begin
+        case (rx_sync[2:0])
+            3'b000, 3'b001, 3'b010, 3'b100: rx_sample <= 1'b0;
+            default: rx_sample <= 1'b1;
         endcase
-      	end
-        end
-     endmodule
-       
-// Seccion del rx
-       
-module rx (
-  input RX,
-  input clock,
-  input reinicio,
-  output reg Terminado,
-  output reg [7:0] info_out);
-  reg WaitRx;
- 
-  typedef enum reg [1:0] {Reposo, Start, Info, Stop} Estados;
-  
-  Estados EstadosRx;
-  reg [2:0] Indexes;
-  reg [7:0] DataSaved;
-  
-  
-always @(posedge clock or posedge reinicio) begin
-  if (reinicio)
-    WaitRx <= 1'b1;  
-  else
-    WaitRx <= RX;    
-end
-  
-  
-  always @(posedge clock or posedge reinicio) begin 
-    if (reinicio) begin
-      EstadosRx <= Reposo; 
-      Terminado <= 0;
-      Indexes <= 0;
     end
-    else begin
-      case (EstadosRx)
-        Reposo: begin
-          Terminado <= 0;
-          if (RX == 0) begin
-            EstadosRx <= Start;
-          end
+
+    // ======================= TRANSMISOR =======================
+    // Cálculo de paridad
+    wire parity_bit = parity_sel ? 
+        ~(^tx_data[num_bits-1:0]) :  // Par
+         (^tx_data[num_bits-1:0]);   // Impar
+    
+    // Máquina de estados TX
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            tx_state <= TX_IDLE;
+            tx_reg <= 1'b1;
+            tx_busy_reg <= 1'b0;
         end
-       	Start: begin
-           EstadosRx <= Info;
-           Indexes <= 0;
-         end
-        Info: begin
-          DataSaved[Indexes] <= WaitRx;
-           if (Indexes == 7)begin
-             EstadosRx <= Stop;
-           end
-           else Indexes <= Indexes +1;
-         end
-         
-         Stop: begin
+        else if (baud_en) begin
+            case (tx_state)
+                TX_IDLE: begin
+                    tx_reg <= 1'b1;
+                    if (tx_start && !tx_busy_reg) begin
+                        tx_data <= data_in;
+                        tx_busy_reg <= 1'b1;
+                        tx_state <= TX_START;
+                    end
+                end
+                
+                TX_START: begin
+                    tx_reg <= 1'b0;
+                    tx_bit_cnt <= 3'd0;
+                    tx_state <= TX_DATA;
+                end
+                
+                TX_DATA: begin
+                    tx_reg <= tx_data[tx_bit_cnt];
+                    if (tx_bit_cnt == num_bits - 1) begin
+                        if (parity_en) tx_state <= TX_PARITY;
+                        else tx_state <= TX_STOP1;
+                    end
+                    else tx_bit_cnt <= tx_bit_cnt + 1;
+                end
+                
+                TX_PARITY: begin
+                    tx_reg <= parity_bit;
+                    tx_state <= TX_STOP1;
+                end
+                
+                TX_STOP1: begin
+                    tx_reg <= 1'b1;
+                    if (stop_bits) tx_state <= TX_STOP2;
+                    else begin
+                        tx_busy_reg <= 1'b0;
+                        tx_state <= TX_IDLE;
+                    end
+                end
+                
+                TX_STOP2: begin
+                    tx_reg <= 1'b1;
+                    tx_busy_reg <= 1'b0;
+                    tx_state <= TX_IDLE;
+                end
+            endcase
+        end
+    end
+
+    assign tx_out = tx_reg;
+    assign tx_busy = tx_busy_reg;
+
+    // ======================= RECEPTOR =======================
+    // Máquina de estados RX
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            rx_state <= RX_IDLE;
+            rx_ready_reg <= 1'b0;
+            rx_error_reg <= 1'b0;
+            rx_sample_cnt <= 4'd0;
+        end
+        else if (baud_en) begin
+            rx_ready_reg <= 1'b0;
+            rx_error_reg <= 1'b0;
             
-           info_out <= DataSaved;
-           Terminado <=1;
-           EstadosRx <= Reposo;
-          end
-          endcase
+            case (rx_state)
+                RX_IDLE: begin
+                    rx_sample_cnt <= 4'd0;
+                    if (rx_falling_edge) begin
+                        rx_state <= RX_START;
+                    end
+                end
+                
+                RX_START: begin
+                    if (rx_sample_cnt == 4'd7) begin
+                        if (rx_sample) begin // Debería ser 0
+                            rx_state <= RX_IDLE;
+                            rx_error_reg <= 1'b1;
+                        end
+                    end
+                    else if (rx_sample_cnt == 4'd15) begin
+                        rx_state <= RX_DATA;
+                        rx_bit_cnt <= 3'd0;
+                        rx_sample_cnt <= 4'd0;
+                    end
+                    else rx_sample_cnt <= rx_sample_cnt + 1;
+                end
+                
+                RX_DATA: begin
+                    if (rx_sample_cnt == 4'd7) begin
+                        rx_data[rx_bit_cnt] <= rx_sample;
+                    end
+                    else if (rx_sample_cnt == 4'd15) begin
+                        if (rx_bit_cnt == num_bits - 1) begin
+                            if (parity_en) rx_state <= RX_PARITY;
+                            else rx_state <= RX_STOP1;
+                        end
+                        else rx_bit_cnt <= rx_bit_cnt + 1;
+                        rx_sample_cnt <= 4'd0;
+                    end
+                    else rx_sample_cnt <= rx_sample_cnt + 1;
+                end
+                
+                RX_PARITY: begin
+                    if (rx_sample_cnt == 4'd7) begin
+                        // Verificar paridad
+                        wire exp_parity = parity_sel ? 
+                            ~(^rx_data[num_bits-1:0]) : 
+                             (^rx_data[num_bits-1:0]);
+                        if (rx_sample != exp_parity)
+                            rx_error_reg <= 1'b1;
+                    end
+                    else if (rx_sample_cnt == 4'd15) begin
+                        rx_state <= RX_STOP1;
+                        rx_sample_cnt <= 4'd0;
+                    end
+                    else rx_sample_cnt <= rx_sample_cnt + 1;
+                end
+                
+                RX_STOP1: begin
+                    if (rx_sample_cnt == 4'd7) begin
+                        if (!rx_sample) // Debería ser 1
+                            rx_error_reg <= 1'b1;
+                    end
+                    else if (rx_sample_cnt == 4'd15) begin
+                        if (stop_bits) begin
+                            rx_state <= RX_STOP2;
+                            rx_sample_cnt <= 4'd0;
+                        end
+                        else begin
+                            rx_ready_reg <= 1'b1;
+                            rx_state <= RX_IDLE;
+                        end
+                    end
+                    else rx_sample_cnt <= rx_sample_cnt + 1;
+                end
+                
+                RX_STOP2: begin
+                    if (rx_sample_cnt == 4'd7) begin
+                        if (!rx_sample) // Debería ser 1
+                            rx_error_reg <= 1'b1;
+                    end
+                    else if (rx_sample_cnt == 4'd15) begin
+                        rx_ready_reg <= 1'b1;
+                        rx_state <= RX_IDLE;
+                    end
+                    else rx_sample_cnt <= rx_sample_cnt + 1;
+                end
+            endcase
         end
-        end
-        endmodule 
-  
-// Juntando ambas
-          
-module uart_inst (
-  input clockUart,
-  input resetUart,
-  input StartUart,
-  input [7:0] info_in_Uart,
-  output [7:0] info_out_Uart,
-  output TerminadoUart);
-  
-  wire Tx;
-  
-  tx txUart (
-    .clock(clockUart),
-    .reinicio(resetUart),
-    .info_in(info_in_Uart),
-    .start(StartUart),
-    .TX(Tx),
-    .ocupado());
-  
-  rx rxUart (
-    .clock(clockUart),
-    .reinicio(resetUart),
-    .RX(Tx),
-    .info_out(info_out_Uart),
-    .Terminado(TerminadoUart));
-  
+    end
+
+    assign rx_ready = rx_ready_reg;
+    assign rx_error = rx_error_reg;
+
 endmodule
-            
-  
