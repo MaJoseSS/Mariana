@@ -8,7 +8,7 @@ project:
   tiles:        "1x1"
   top_module:   "tt_um_uart"
   source_files:
-    - "project.v"
+    - "uart.v"
 
 pinout:
   # Inputs
